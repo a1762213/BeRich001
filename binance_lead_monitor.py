@@ -22,6 +22,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -129,12 +130,20 @@ def bark_push(title, body):
         ["openssl", "enc", "-aes-128-cbc", "-K", hex_key, "-iv", hex_iv],
         input=payload.encode("utf-8"), capture_output=True, check=True)
     ciphertext = base64.b64encode(p.stdout).decode("ascii")
-    data = urllib.parse.urlencode(
-        {"ciphertext": ciphertext, "iv": iv}).encode("ascii")
-    req = urllib.request.Request("https://api.day.app/" + BARK_KEY,
-                                 data=data, method="POST")
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        r = json.loads(resp.read().decode("utf-8"))
+    qs = urllib.parse.urlencode({"ciphertext": ciphertext, "iv": iv})
+    base_url = "https://api.day.app/" + BARK_KEY
+    # 部分 IP 段(如云服务器)POST 会被拒 405, 自动降级 GET
+    r = None
+    try:
+        req = urllib.request.Request(base_url, data=qs.encode("ascii"),
+                                     method="POST")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            r = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code != 405:
+            raise
+        with urllib.request.urlopen(base_url + "?" + qs, timeout=15) as resp:
+            r = json.loads(resp.read().decode("utf-8"))
     if r.get("code") != 200:
         raise RuntimeError("Bark 推送失败: %s" % r)
 
