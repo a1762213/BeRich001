@@ -1,40 +1,81 @@
-# 币安跟单「熬鹰资本」操作监控 · GitHub Actions 近实时版
+# Binance 带单员操作监控 · 手机秒推（Bark 加密）
 
-原理：币安带单员操作接口没有推送/webhook 机制，只能轮询。本方案用 GitHub Actions
-每 5 分钟触发一次任务，每次任务内脚本**连续轮询 4 分钟（每 30 秒查一次）**后退出，
-由下一个定时任务无缝接力 —— 等效 7×24 每 30 秒检查，新操作约 30 秒内推送到手机。
+监控任意币安合约跟单带单员的「最新操作记录」，有新开仓/平仓时 **约 30 秒内**
+推送到 iPhone/安卓手机。免费运行在 GitHub Actions 上，7×24 无人值守，
+关闭自己电脑也照常工作。
 
-文件：
-- `binance_lead_monitor.py`  监控脚本（纯 Python 3 标准库，无第三方依赖）
-- `.github/workflows/monitor.yml`  GitHub Actions 定时接力配置
-- `state.json`               状态文件（记录已通知到哪条；删除后会重推最近 20 条）
+原理：GitHub 的内置定时器不可靠（实测 24 小时只触发 2 次），所以用免费的
+[cron-job.org](https://cron-job.org) 每 5 分钟从外部触发一次 Action，
+Action 内部以 30 秒间隔连续轮询 4 分钟，形成接力，等效 30 秒级监控。
 
-## 部署步骤（约 5 分钟）
+## 功能
 
-1. 在 GitHub 新建一个 **Public（公开）** 仓库
-   （公开仓库 Actions 分钟数免费不限量；Bark key 放 Secrets 不会暴露）
-2. 上传三个文件：
-   - `binance_lead_monitor.py`
-   - `state.json`（用本地这份已初始化的，避免首跑推送 20 条历史）
-   - `.github/workflows/monitor.yml`（注意目录结构要一致）
-3. 仓库 Settings → Secrets and variables → Actions → New repository secret：
-   - Name: `BARK_KEY`
-   - Value: `v6xHSoTaFcSnBprc8pKU5d`
-4. 到 Actions 页确认 `binance-copy-monitor` 工作流已启用；可点
-   `Run workflow` 手动跑一次验证
-5. 手动触发后 30 秒内若推送失败才需要检查；无新记录时是静默的。
-   想立刻验证推送，可临时把 state.json 里的 lastOrderTime 改小一点再手动跑
+- 每 30 秒检查一次带单员最新操作（开多/开空/平仓，含价格、数量、金额）
+- Bark 推送（AES-128-CBC 加密，服务器看不到内容）
+- Bark 服务器拦截数据中心 IP 时自动降级 ntfy.sh 备用通道
+- 推送成功立即提交 state.json，任务被取消也不丢进度、不重复推送
+- 同时监控多个带单员：复制 workflow 多份、各用不同 `PORTFOLIO_ID` 与状态文件即可
 
-## 可调参数
-- 检查间隔 / 接力时长：改 workflow 里 `--loop 30 --duration 240`
-  （cron 间隔须 ≥ duration + 约 60 秒余量）
-- 换带单员：仓库 Secrets 加 `PORTFOLIO_ID` 和 `LEAD_NAME`，
-  或直接改脚本顶部默认值
-- 换推送 key：改 `BARK_KEY` secret
-- 推送失败会自动在下一次轮询时重试，不会漏报
+## 复制部署（约 10 分钟）
 
-## 注意事项
-- GitHub 的 cron 以 UTC 计时且可能有 1-3 分钟调度延迟（接力机制会自动兜住空窗）
-- 想完全停掉：Actions 页面 Disable workflow 即可
-- 脚本也可脱离 GitHub 在任何海外服务器运行：
-  `python3 binance_lead_monitor.py --loop 30`（国内机器需设 HTTPS_PROXY）
+### 1. 复制本仓库文件到你的仓库
+把 `binance_lead_monitor.py`、`.github/workflows/monitor.yml` 复制到
+**你自己的公开仓库**（公开仓库 Actions 免费不限量）。
+
+### 2. 改配置
+编辑 `binance_lead_monitor.py` 顶部默认值，或用环境变量/Secrets 覆盖：
+
+| 配置 | 说明 | 怎么获取 |
+|---|---|---|
+| `PORTFOLIO_ID` | 带单员 ID | 带单页 URL `lead-details/` 后面那串数字 |
+| `LEAD_NAME` | 推送里显示的名字 | 随意起 |
+| `BARK_KEY` | Bark 设备 key | Bark App 首页示例 URL 里那段 |
+| `BARK_AES_KEY` | 加密密钥(16 字符) | 自己随机编 16 个字母数字 |
+| `NTFY_TOPIC` | 备用通道主题名 | 自己随机编（如 `my-topic-x8k2`） |
+
+**Bark 加密设置**：Bark App → 推送加密 → 加密设置 → 算法选 AES128，
+KEY 填你上面编的 `BARK_AES_KEY`（两端一致即可，IV 随机生成会随请求传递）。
+
+> 建议：fork 后把 key 只放仓库 Settings → Secrets，workflow 已支持
+> `BARK_KEY` 注入；不想加密可把 `BARK_AES_KEY` 设为空并自行删改推送函数。
+
+### 3. 初始化状态
+在仓库根目录创建 `state.json`，先手动跑一次脚本让它写入，或直接：
+```json
+{"lastOrderTime": 0, "notified": []}
+```
+（首次运行会把最近 20 条当新记录推给你，当作测试也行；想跳过就把
+`lastOrderTime` 设为最近一条记录的毫秒时间戳。）
+
+### 4. 外部定时触发（关键，别依赖 GitHub 自带 cron）
+1. GitHub → Settings → Developer settings → Fine-grained personal access tokens
+   → 新建：只授权本仓库，权限给 **Actions: Read and write**
+2. 注册 [cron-job.org](https://cron-job.org)（免费），创建任务：
+   - URL：`https://api.github.com/repos/<你的用户名>/<仓库名>/actions/workflows/monitor.yml/dispatches`
+   - Method：**POST**，Body：`{"ref":"main"}`
+   - Headers：`Authorization: Bearer <你的token>`、
+     `Accept: application/vnd.github+json`、`Content-Type: application/json`
+   - 频率：**Every 5 minutes**
+   - 建议开启失败通知（token 到期会邮件提醒，fine-grained token 默认 90 天）
+
+### 5. 验证
+仓库 Actions 页 → `binance-copy-monitor` → Run workflow → 勾选
+**test_push** 跑一次，手机应立刻收到「推送通道测试」。
+
+## 本地运行（可选）
+```bash
+python3 binance_lead_monitor.py            # 单次检查
+python3 binance_lead_monitor.py --loop 30  # 常驻模式
+python3 binance_lead_monitor.py --test-push  # 测试推送
+```
+国内网络需先 `export HTTPS_PROXY=...`。
+
+## 常见问题
+- **收不到推送**：用 `--test-push` 单独测；看 Actions 日志里 Bark 是否
+  被拦（会自动降级 ntfy，去 https://ntfy.sh/<你的topic> 网页也能看消息）
+- **收到重复推送**：确保仓库里 state.json 正常提交（Actions 需要
+  Settings → Actions → General → Workflow permissions 选 **Read and write**）
+- **想停止**：cron-job.org 删除任务 + Actions 页 Disable workflow
+
+---
+*仅供学习研究。跟单有风险，本工具只是信息提醒，不构成投资建议。*
