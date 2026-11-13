@@ -164,7 +164,7 @@ def _bark_push(title, body):
           "AppleWebKit/537.36 (KHTML, like Gecko) "
           "Chrome/120.0 Safari/537.36")
     # 部分 IP 段(如云服务器)POST 会被拒 405, 自动降级 GET
-    r = None
+    method = "POST"
     try:
         req = urllib.request.Request(base_url, data=qs.encode("ascii"),
                                      headers={"User-Agent": ua},
@@ -174,13 +174,17 @@ def _bark_push(title, body):
     except urllib.error.HTTPError as e:
         if e.code != 405:
             raise
+        method = "GET"
         with urllib.request.urlopen(
                 urllib.request.Request(
                     base_url + "?" + qs, headers={"User-Agent": ua}),
                 timeout=15) as resp:
             raw = resp.read().decode("utf-8", "replace")
+    print("Bark %s 响应: %.200s" % (method, raw.strip()))
     if raw.strip() == "ok":
-        return  # GET 方式成功时 Bark 返回纯文本 "ok"
+        # "ok" 非 bark-server 标准响应(正常返回 JSON code:200),
+        # 疑似被前置 CDN/WAF 拦截吞掉, 按失败处理走 ntfy 兜底
+        raise RuntimeError("可疑响应 ok(疑似被拦截)")
     try:
         r = json.loads(raw)
     except ValueError:
