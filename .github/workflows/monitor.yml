@@ -19,10 +19,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # 连续轮询 240 秒(每 30 秒一次), 由外部 5 分钟定时接力
+      # 连续轮询 240 秒(每 30 秒一次), 由外部 5 分钟定时接力;
+      # AUTO_COMMIT=1: 每次推送成功后立即提交状态, 任务被取消也不丢进度
       - name: monitor (30s polling for 4 min)
         env:
           BARK_KEY: ${{ secrets.BARK_KEY }}
+          AUTO_COMMIT: "1"
         run: python binance_lead_monitor.py --loop 30 --duration 240
       # 把状态提交回仓库, 供下一次接力(与其他推送撞车时自动合并, 失败不标红)
       - name: commit state

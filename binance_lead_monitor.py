@@ -71,6 +71,24 @@ def save_state(path, state):
     os.replace(tmp, path)
 
 
+def auto_commit(state_path):
+    """推送成功后立即把状态提交回仓库(设置 AUTO_COMMIT=1 时生效),
+    防止任务被取消时丢失进度导致下一轮重复推送。"""
+    if os.environ.get("AUTO_COMMIT") != "1":
+        return
+    import subprocess
+    repo = os.path.dirname(os.path.abspath(state_path))
+    for cmd in (
+        ["git", "add", os.path.basename(state_path)],
+        ["git", "-c", "user.name=monitor-bot",
+         "-c", "user.email=monitor-bot@users.noreply.github.com",
+         "commit", "-m", "update state [skip ci]"],
+        ["git", "pull", "--rebase", "--autostash", "origin", "main"],
+        ["git", "push"],
+    ):
+        subprocess.run(cmd, cwd=repo, capture_output=True)
+
+
 def http_post_json(url, payload, timeout=20):
     proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
     if proxy:
@@ -184,6 +202,7 @@ def check_once(state_path):
     state["lastOrderTime"] = max(o["orderTime"] for o in orders)
     save_state(state_path, state)
     print("状态已更新")
+    auto_commit(state_path)
 
 
 def main():
