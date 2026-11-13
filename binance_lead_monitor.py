@@ -35,6 +35,8 @@ BARK_GROUP = os.environ.get("BARK_GROUP", "Binance跟单监控")
 BARK_SOUND = os.environ.get("BARK_SOUND", "bell")
 # Bark 推送加密(AES-128-CBC): 与 App 内「推送加密」设置的 KEY 保持一致
 BARK_AES_KEY = os.environ.get("BARK_AES_KEY", "7Kp2mQ9xT4wB8nE5")
+# 备用推送通道 ntfy.sh(Bark 服务器拦截数据中心 IP 时自动降级)
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "binance-aoying-9x7k2")
 API_URL = ("https://www.binance.com/bapi/futures/v1/friendly/future/"
            "copy-trade/lead-portfolio/order-history")
 PAGE_SIZE = 20                                  # 每次拉取条数
@@ -130,9 +132,17 @@ def fmt_order(o):
 
 
 def bark_push(title, body):
+    """优先 Bark 加密推送; Bark 被拦截时自动降级 ntfy.sh 备用通道。"""
+    try:
+        _bark_push(title, body)
+    except Exception as e:
+        print("Bark 推送失败(%s), 改用 ntfy 备用通道" % e)
+        _ntfy_push(title, body)
+
+
+def _bark_push(title, body):
     """加密推送: AES-128-CBC 加密 JSON 后作为 ciphertext 发送,
-    IV 每次随机生成并随请求传递, App 端用保存的 KEY 解密。
-    依赖系统 openssl 命令(Linux/macOS/Git Bash 均自带)。"""
+    IV 每次随机生成并随请求传递, App 端用保存的 KEY 解密。"""
     import base64
     import random
     import string
@@ -150,20 +160,45 @@ def bark_push(title, body):
     ciphertext = base64.b64encode(p.stdout).decode("ascii")
     qs = urllib.parse.urlencode({"ciphertext": ciphertext, "iv": iv})
     base_url = "https://api.day.app/" + BARK_KEY
+    ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+          "AppleWebKit/537.36 (KHTML, like Gecko) "
+          "Chrome/120.0 Safari/537.36")
     # 部分 IP 段(如云服务器)POST 会被拒 405, 自动降级 GET
     r = None
     try:
         req = urllib.request.Request(base_url, data=qs.encode("ascii"),
+                                     headers={"User-Agent": ua},
                                      method="POST")
         with urllib.request.urlopen(req, timeout=15) as resp:
-            r = json.loads(resp.read().decode("utf-8"))
+            raw = resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         if e.code != 405:
             raise
-        with urllib.request.urlopen(base_url + "?" + qs, timeout=15) as resp:
-            r = json.loads(resp.read().decode("utf-8"))
+        with urllib.request.urlopen(
+                urllib.request.Request(
+                    base_url + "?" + qs, headers={"User-Agent": ua}),
+                timeout=15) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+    try:
+        r = json.loads(raw)
+    except ValueError:
+        raise RuntimeError("Bark 响应异常: %.120s" % raw)
     if r.get("code") != 200:
         raise RuntimeError("Bark 推送失败: %s" % r)
+
+
+def _ntfy_push(title, body):
+    """ntfy.sh 备用推送(HTTP 200 即达, 无需注册)"""
+    req = urllib.request.Request(
+        "https://ntfy.sh/" + NTFY_TOPIC,
+        data=json.dumps({"title": title, "message": body,
+                         "tags": ["bell"]}).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        raw = resp.read().decode("utf-8", "replace")
+    if '"event":"message"' not in raw:
+        raise RuntimeError("ntfy 推送失败: %.120s" % raw)
+    print("ntfy 备用通道推送成功")
 
 
 def check_once(state_path):
@@ -208,6 +243,10 @@ def check_once(state_path):
 def main():
     state_path = default_state_path()
     args = sys.argv[1:]
+    if args and args[0] == "--test-push":
+        bark_push("推送通道测试", "这是一条测试推送(不改变监控状态)")
+        print("测试推送流程完成")
+        return
     if args and args[0] in ("--loop", "-l"):
         interval = int(args[1]) if len(args) > 1 else 300
         duration = 0

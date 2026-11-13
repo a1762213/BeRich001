@@ -5,6 +5,11 @@ on:
   repository_dispatch:
     types: [ping]            # 外部定时服务触发入口
   workflow_dispatch:          # 手动触发
+    inputs:
+      test_push:
+        description: "仅测试推送通道(不监控)"
+        type: boolean
+        default: false
 permissions:
   contents: write
 concurrency:
@@ -22,10 +27,14 @@ jobs:
       # 连续轮询 240 秒(每 30 秒一次), 由外部 5 分钟定时接力;
       # AUTO_COMMIT=1: 每次推送成功后立即提交状态, 任务被取消也不丢进度
       - name: monitor (30s polling for 4 min)
+        if: ${{ inputs.test_push != true }}
         env:
           BARK_KEY: ${{ secrets.BARK_KEY }}
           AUTO_COMMIT: "1"
         run: python binance_lead_monitor.py --loop 30 --duration 240
+      - name: test push only
+        if: ${{ inputs.test_push == true }}
+        run: python binance_lead_monitor.py --test-push
       # 把状态提交回仓库, 供下一次接力(与其他推送撞车时自动合并, 失败不标红)
       - name: commit state
         run: |
