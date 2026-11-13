@@ -179,6 +179,8 @@ def _bark_push(title, body):
                     base_url + "?" + qs, headers={"User-Agent": ua}),
                 timeout=15) as resp:
             raw = resp.read().decode("utf-8", "replace")
+    if raw.strip() == "ok":
+        return  # GET 方式成功时 Bark 返回纯文本 "ok"
     try:
         r = json.loads(raw)
     except ValueError:
