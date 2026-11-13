@@ -12,7 +12,6 @@ Action 内部以 30 秒间隔连续轮询 4 分钟，形成接力，等效 30 �
 
 - 每 30 秒检查一次带单员最新操作（开多/开空/平仓，含价格、数量、金额）
 - Bark 推送（AES-128-CBC 加密，服务器看不到内容）
-- Bark 服务器拦截数据中心 IP 时自动降级 ntfy.sh 备用通道
 - 推送成功立即提交 state.json，任务被取消也不丢进度、不重复推送
 - 同时监控多个带单员：复制 workflow 多份、各用不同 `PORTFOLIO_ID` 与状态文件即可
 
@@ -31,7 +30,6 @@ Action 内部以 30 秒间隔连续轮询 4 分钟，形成接力，等效 30 �
 | `LEAD_NAME` | 推送里显示的名字 | 随意起 |
 | `BARK_KEY` | Bark 设备 key | Bark App 首页示例 URL 里那段 |
 | `BARK_AES_KEY` | 加密密钥(16 字符) | 自己随机编 16 个字母数字 |
-| `NTFY_TOPIC` | 备用通道主题名 | 自己随机编（如 `my-topic-x8k2`） |
 
 **Bark 加密设置**：Bark App → 推送加密 → 加密设置 → 算法选 AES128，
 KEY 填你上面编的 `BARK_AES_KEY`（两端一致即可，IV 随机生成会随请求传递）。
@@ -71,8 +69,8 @@ python3 binance_lead_monitor.py --test-push  # 测试推送
 国内网络需先 `export HTTPS_PROXY=...`。
 
 ## 常见问题
-- **收不到推送**：用 `--test-push` 单独测；看 Actions 日志里 Bark 是否
-  被拦（会自动降级 ntfy，去 https://ntfy.sh/<你的topic> 网页也能看消息）
+- **收不到推送**：用 `--test-push` 单独测；Actions 日志会打印 Bark
+  真实响应，若被拦截会自动在下一轮(30 秒后)重试，不会丢消息
 - **收到重复推送**：确保仓库里 state.json 正常提交（Actions 需要
   Settings → Actions → General → Workflow permissions 选 **Read and write**）
 - **想停止**：cron-job.org 删除任务 + Actions 页 Disable workflow
