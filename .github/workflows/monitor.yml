@@ -1,27 +1,29 @@
 name: binance-copy-monitor
 on:
   schedule:
-    - cron: "0 * * * *"   # 每小时触发(GitHub 对高频定时限流严重, 低频更可靠)
-  workflow_dispatch:          # 允许手动触发
+    - cron: "0 * * * *"   # 兜底(GitHub 自带定时不可靠, 主力是外部 cron-job.org 触发)
+  repository_dispatch:
+    types: [ping]            # 外部定时服务触发入口
+  workflow_dispatch:          # 手动触发
 permissions:
-  contents: write             # 需要提交 state.json
+  contents: write
 concurrency:
-  group: monitor              # 防止运行重叠
-  cancel-in-progress: false
+  group: monitor
+  cancel-in-progress: true    # 新触发到达时取消排队/运行中的旧任务, 防止堆积
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      # 连续轮询 3300 秒(每 30 秒一次), 由下一个整点任务接力, 等效 7x24
-      - name: monitor (30s polling for 55 min)
+      # 连续轮询 240 秒(每 30 秒一次), 由外部 5 分钟定时接力
+      - name: monitor (30s polling for 4 min)
         env:
           BARK_KEY: ${{ secrets.BARK_KEY }}
-        run: python binance_lead_monitor.py --loop 30 --duration 3300
+        run: python binance_lead_monitor.py --loop 30 --duration 240
       # 把状态提交回仓库, 供下一次接力(与其他推送撞车时自动合并, 失败不标红)
       - name: commit state
         run: |
