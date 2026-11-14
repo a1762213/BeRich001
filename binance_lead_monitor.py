@@ -35,6 +35,8 @@ BARK_GROUP = os.environ.get("BARK_GROUP", "Binance跟单监控")
 BARK_SOUND = os.environ.get("BARK_SOUND", "bell")
 # Bark 推送加密(AES-128-CBC): 与 App 内「推送加密」设置的 KEY 保持一致
 BARK_AES_KEY = os.environ.get("BARK_AES_KEY", "7Kp2mQ9xT4wB8nE5")
+# 备用推送通道 ntfy.sh(Bark 服务器拦截数据中心 IP 时自动降级)
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "binance-aoying-9x7k2")
 API_URL = ("https://www.binance.com/bapi/futures/v1/friendly/future/"
            "copy-trade/lead-portfolio/order-history")
 PAGE_SIZE = 20                                  # 每次拉取条数
@@ -130,8 +132,26 @@ def fmt_order(o):
 
 
 def bark_push(title, body):
-    """Bark 加密推送; 失败时抛异常, 由下一轮检查自动重试(不丢消息)。"""
-    _bark_push(title, body)
+    """优先 Bark 加密推送; Bark 被拦截时自动降级 ntfy.sh 备用通道。"""
+    try:
+        _bark_push(title, body)
+    except Exception as e:
+        print("Bark 推送失败(%s), 改用 ntfy 备用通道" % e)
+        _ntfy_push(title, body)
+
+
+def _ntfy_push(title, body):
+    """ntfy.sh 备用推送(HTTP 200 即达, 无需注册)"""
+    req = urllib.request.Request(
+        "https://ntfy.sh/" + NTFY_TOPIC,
+        data=json.dumps({"title": title, "message": body,
+                         "tags": ["bell"]}).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        raw = resp.read().decode("utf-8", "replace")
+    if '"event":"message"' not in raw:
+        raise RuntimeError("ntfy 推送失败: %.120s" % raw)
+    print("ntfy 备用通道推送成功")
 
 
 def _bark_push(title, body):
