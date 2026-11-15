@@ -114,21 +114,28 @@ def fetch_orders():
     return data["data"].get("list") or []
 
 
-SIDE_CN = {"BUY": "买入", "SELL": "卖出"}
-POSSIDE_CN = {"SHORT": "开空/平多", "LONG": "开多/平空",
-              "BOTH": "单向持仓"}
+ACTION_CN = {
+    ("SELL", "SHORT"): "卖出开空",   # 做空方向加仓
+    ("BUY", "SHORT"): "买入平空",    # 空头止盈/止损
+    ("BUY", "LONG"): "买入开多",     # 做多方向加仓
+    ("SELL", "LONG"): "卖出平多",    # 多头止盈/止损
+}
+
+
+def _fmt_value(usd):
+    if usd >= 10000:
+        return "%.2f 万 USDT" % (usd / 10000)
+    return "%.0f USDT" % usd
 
 
 def fmt_order(o):
     t = time.strftime("%m-%d %H:%M:%S", time.localtime(o["orderTime"] / 1000))
-    side = SIDE_CN.get(o.get("side"), o.get("side"))
-    pos = POSSIDE_CN.get(o.get("positionSide"), o.get("positionSide"))
-    return ("%s %s %s: %s %s 均价 %g USDT, 数量 %g %s, 价值约 %.0f USDT"
-            % (t, side, o["symbol"], pos,
-               o.get("type", ""),
-               o["avgPrice"], o["executedQty"],
-               o.get("baseAsset", ""),
-               o["avgPrice"] * o["executedQty"]))
+    act = ACTION_CN.get((o.get("side"), o.get("positionSide")),
+                        "%s %s" % (o.get("side"), o.get("positionSide")))
+    return ("%s %s %s 永续，数量 %g %s，均价 %g，约 %s"
+            % (t, act, o["symbol"], o["executedQty"],
+               o.get("baseAsset", ""), o["avgPrice"],
+               _fmt_value(o["avgPrice"] * o["executedQty"])))
 
 
 def bark_push(title, body):
@@ -141,11 +148,12 @@ def bark_push(title, body):
 
 
 def _ntfy_push(title, body):
-    """ntfy.sh 备用推送(HTTP 200 即达, 无需注册)"""
+    """ntfy.sh 备用推送(JSON 发布到根路径, topic 放在 JSON 内)"""
     req = urllib.request.Request(
-        "https://ntfy.sh/" + NTFY_TOPIC,
-        data=json.dumps({"title": title, "message": body,
-                         "tags": ["bell"]}).encode("utf-8"),
+        "https://ntfy.sh/",
+        data=json.dumps({"topic": NTFY_TOPIC, "title": title,
+                         "message": body, "tags": ["bell"]},
+                        ensure_ascii=False).encode("utf-8"),
         headers={"Content-Type": "application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=15) as resp:
         raw = resp.read().decode("utf-8", "replace")
