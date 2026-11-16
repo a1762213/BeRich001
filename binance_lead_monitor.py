@@ -33,8 +33,6 @@ LEAD_NAME = os.environ.get("LEAD_NAME", "熬鹰资本")
 BARK_KEY = os.environ.get("BARK_KEY", "v6xHSoTaFcSnBprc8pKU5d")
 BARK_GROUP = os.environ.get("BARK_GROUP", "Binance跟单监控")
 BARK_SOUND = os.environ.get("BARK_SOUND", "bell")
-# Bark 推送加密(AES-128-CBC): 与 App 内「推送加密」设置的 KEY 保持一致
-BARK_AES_KEY = os.environ.get("BARK_AES_KEY", "7Kp2mQ9xT4wB8nE5")
 # 备用推送通道 ntfy.sh(Bark 服务器拦截数据中心 IP 时自动降级)
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "binance-aoying-9x7k2")
 API_URL = ("https://www.binance.com/bapi/futures/v1/friendly/future/"
@@ -163,32 +161,17 @@ def _ntfy_push(title, body):
 
 
 def _bark_push(title, body):
-    """加密推送: AES-128-CBC 加密 JSON 后作为 ciphertext 发送,
-    IV 每次随机生成并随请求传递, App 端用保存的 KEY 解密。"""
-    import base64
-    import random
-    import string
-    import subprocess
-    payload = json.dumps({"title": title, "body": body,
-                          "group": BARK_GROUP, "sound": BARK_SOUND},
-                         ensure_ascii=False)
-    iv = "".join(random.choices(string.ascii_letters + string.digits, k=16))
-    # openssl 手动指定的 -K/-iv 需要 hex 编码, 而非 ASCII
-    hex_key = BARK_AES_KEY.encode("utf-8").hex()
-    hex_iv = iv.encode("utf-8").hex()
-    p = subprocess.run(
-        ["openssl", "enc", "-aes-128-cbc", "-K", hex_key, "-iv", hex_iv],
-        input=payload.encode("utf-8"), capture_output=True, check=True)
-    ciphertext = base64.b64encode(p.stdout).decode("ascii")
-    qs = urllib.parse.urlencode({"ciphertext": ciphertext, "iv": iv})
+    """明文推送(App 内已关闭加密): POST 参数, 405 时降级 GET。"""
+    qs = urllib.parse.urlencode({
+        "title": title, "body": body,
+        "group": BARK_GROUP, "sound": BARK_SOUND})
     base_url = "https://api.day.app/" + BARK_KEY
     ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
           "AppleWebKit/537.36 (KHTML, like Gecko) "
           "Chrome/120.0 Safari/537.36")
-    # 部分 IP 段(如云服务器)POST 会被拒 405, 自动降级 GET
     method = "POST"
     try:
-        req = urllib.request.Request(base_url, data=qs.encode("ascii"),
+        req = urllib.request.Request(base_url, data=qs.encode("utf-8"),
                                      headers={"User-Agent": ua},
                                      method="POST")
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -205,7 +188,7 @@ def _bark_push(title, body):
     print("Bark %s 响应: %.200s" % (method, raw.strip()))
     if raw.strip() == "ok":
         # "ok" 非 bark-server 标准响应(正常返回 JSON code:200),
-        # 疑似被前置 CDN/WAF 拦截吞掉, 按失败处理, 下一轮重试
+        # 疑似被前置 CDN/WAF 拦截吞掉, 按失败处理走 ntfy 兜底
         raise RuntimeError("可疑响应 ok(疑似被拦截)")
     try:
         r = json.loads(raw)
