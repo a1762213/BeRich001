@@ -161,41 +161,54 @@ def _ntfy_push(title, body):
 
 
 def _bark_push(title, body):
-    """明文推送(App 内已关闭加密): POST 参数, 405 时降级 GET。"""
-    qs = urllib.parse.urlencode({
-        "title": title, "body": body,
-        "group": BARK_GROUP, "sound": BARK_SOUND})
-    base_url = "https://api.day.app/" + BARK_KEY
+    """明文推送, 三种方式依次尝试, 任一真实成功(code:200)即送达:
+    1) JSON POST /push (device_key 放请求体)
+    2) 表单 POST /{device_key}
+    3) GET /{device_key}?参数
+    """
+    params = {"title": title, "body": body,
+              "group": BARK_GROUP, "sound": BARK_SOUND}
     ua = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
           "AppleWebKit/537.36 (KHTML, like Gecko) "
           "Chrome/120.0 Safari/537.36")
-    method = "POST"
-    try:
-        req = urllib.request.Request(base_url, data=qs.encode("utf-8"),
-                                     headers={"User-Agent": ua},
-                                     method="POST")
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            raw = resp.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as e:
-        if e.code != 405:
-            raise
-        method = "GET"
-        with urllib.request.urlopen(
-                urllib.request.Request(
-                    base_url + "?" + qs, headers={"User-Agent": ua}),
-                timeout=15) as resp:
-            raw = resp.read().decode("utf-8", "replace")
-    print("Bark %s 响应: %.200s" % (method, raw.strip()))
-    if raw.strip() == "ok":
-        # "ok" 非 bark-server 标准响应(正常返回 JSON code:200),
-        # 疑似被前置 CDN/WAF 拦截吞掉, 按失败处理走 ntfy 兜底
-        raise RuntimeError("可疑响应 ok(疑似被拦截)")
-    try:
-        r = json.loads(raw)
-    except ValueError:
-        raise RuntimeError("Bark 响应异常: %.120s" % raw)
-    if r.get("code") != 200:
-        raise RuntimeError("Bark 推送失败: %s" % r)
+    attempts = (
+        ("JSON", "https://api.day.app/push",
+         json.dumps(dict(params, device_key=BARK_KEY),
+                    ensure_ascii=False).encode("utf-8"),
+         {"User-Agent": ua, "Content-Type": "application/json"}),
+        ("FORM", "https://api.day.app/" + BARK_KEY,
+         urllib.parse.urlencode(params).encode("utf-8"),
+         {"User-Agent": ua}),
+        ("GET", "https://api.day.app/" + BARK_KEY + "?" +
+         urllib.parse.urlencode(params), None,
+         {"User-Agent": ua}),
+    )
+    errors = []
+    for name, url, data, headers in attempts:
+        try:
+            req = urllib.request.Request(url, data=data,
+                                         headers=headers,
+                                         method="POST" if data else "GET")
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw = resp.read().decode("utf-8", "replace")
+        except Exception as e:
+            errors.append("%s:%s" % (name, e))
+            continue
+        print("Bark %s 响应: %.200s" % (name, raw.strip()))
+        if raw.strip() == "ok":
+            # "ok" 非 bark-server 标准响应(正常返回 JSON code:200),
+            # 疑似被前置 CDN/WAF 拦截吞掉, 换下一种方式
+            errors.append("%s:可疑响应ok" % name)
+            continue
+        try:
+            r = json.loads(raw)
+        except ValueError:
+            errors.append("%s:响应异常" % name)
+            continue
+        if r.get("code") == 200:
+            return  # 真实送达
+        errors.append("%s:code=%s" % (name, r.get("code")))
+    raise RuntimeError("三种方式均失败(%s)" % "; ".join(errors))
 
 
 def _okey(o):
