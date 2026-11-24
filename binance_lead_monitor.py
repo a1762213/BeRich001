@@ -198,43 +198,88 @@ def _bark_push(title, body):
         raise RuntimeError("Bark 推送失败: %s" % r)
 
 
+def _okey(o):
+    return "%s-%s-%s" % (o["orderTime"], o["symbol"], o["side"])
+
+
+def _minimal(o):
+    return {k: o.get(k) for k in ("orderTime", "symbol", "baseAsset",
+                                  "side", "positionSide",
+                                  "executedQty", "avgPrice")}
+
+
 def check_once(state_path):
     state = load_state(state_path)
     orders = fetch_orders()
     if not orders:
         print("接口未返回记录(可能被限流), 保持状态不变")
         return
+    changed = False
     last = state.get("lastOrderTime", 0)
-    fresh = [o for o in orders if o["orderTime"] > last]
-    # 去掉已通知过的(按 orderTime+symbol 去重)
     seen = set(state.get("notified", []))
-    fresh = [o for o in fresh
-             if "%s-%s-%s" % (o["orderTime"], o["symbol"], o["side"]) not in seen]
-    if not fresh:
+    fresh = [o for o in orders
+             if o["orderTime"] > last and _okey(o) not in seen]
+    pending = list(state.get("barkPending", []))
+
+    if not fresh and not pending:
         newest = max(o["orderTime"] for o in orders)
         print("暂无新操作, 最新记录时间:",
               time.strftime("%Y-%m-%d %H:%M:%S",
                             time.localtime(newest / 1000)))
         return
+
     fresh.sort(key=lambda o: o["orderTime"])
-    lines = [fmt_order(o) for o in fresh]
-    print("发现 %d 条新操作:" % len(lines))
-    for l in lines:
-        print(" ", l)
+    if fresh:
+        lines = [fmt_order(o) for o in fresh]
+        print("发现 %d 条新操作:" % len(lines))
+        for l in lines:
+            print(" ", l)
+
+    # --- Bark 通道: 新操作 + 历史未送达(补投)的一起尝试 ---
+    bark_batch = list({_okey(o): _minimal(o)
+                       for o in (pending + fresh)}.values())
+    bark_batch.sort(key=lambda o: o["orderTime"])
+    bark_ok = False
+    suffix = "（含补投）" if pending else ""
+    title = "%s 新操作 x%d%s" % (LEAD_NAME, len(bark_batch), suffix)
     try:
-        bark_push("%s 新操作 x%d" % (LEAD_NAME, len(lines)),
-                  "; ".join(lines))
-        print("Bark 推送成功")
+        _bark_push(title, "; ".join(fmt_order(o) for o in bark_batch))
+        bark_ok = True
+        print("Bark 推送成功(含补投共 %d 条)" % len(bark_batch))
     except Exception as e:
-        print("Bark 推送失败(下次仍会重试该批):", e)
-        return  # 推送失败不更新状态, 下次重试
-    for o in fresh:
-        seen.add("%s-%s-%s" % (o["orderTime"], o["symbol"], o["side"]))
-    state["notified"] = sorted(seen)[-500:]
-    state["lastOrderTime"] = max(o["orderTime"] for o in orders)
-    save_state(state_path, state)
-    print("状态已更新")
-    auto_commit(state_path)
+        print("Bark 推送失败: %s" % e)
+
+    if bark_ok:
+        state["barkPending"] = []
+        state["barkLastOrderTime"] = bark_batch[-1]["orderTime"]
+        changed = True
+    else:
+        state["barkPending"] = bark_batch[-20:]
+
+    # --- 新操作至少要有一条通道送达 ---
+    if fresh:
+        if not bark_ok:
+            try:
+                _ntfy_push("%s 新操作 x%d" % (LEAD_NAME, len(fresh)),
+                           "; ".join(fmt_order(o) for o in fresh))
+            except Exception as e:
+                print("ntfy 备用通道也失败(%s), 下轮整体重试" % e)
+                save_state(state_path, state)
+                auto_commit(state_path)
+                return
+        for o in fresh:
+            seen.add(_okey(o))
+        state["notified"] = sorted(seen)[-500:]
+        state["lastOrderTime"] = max(o["orderTime"] for o in orders)
+        changed = True
+
+    if changed:
+        save_state(state_path, state)
+        print("状态已更新")
+        auto_commit(state_path)
+    elif not bark_ok and pending:
+        # 仅补投未成功: 只存本地, 不提交仓库
+        save_state(state_path, state)
 
 
 def main():
