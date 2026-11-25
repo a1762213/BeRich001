@@ -1,5 +1,5 @@
 {
-  "lastOrderTime": 1795626499993,
+  "lastOrderTime": 1795626520236,
   "notified": [
     "1794415351842-ZECUSDT-SELL",
     "1794514177788-SPCXUSDT-SELL",
@@ -114,7 +114,9 @@
     "1795522453847-SKHYNIXUSDT-BUY",
     "1795626485307-NVDAUSDT-BUY",
     "1795626492643-NVDAUSDT-BUY",
-    "1795626499993-NVDAUSDT-BUY"
+    "1795626499993-NVDAUSDT-BUY",
+    "1795626510070-NVDAUSDT-BUY",
+    "1795626520236-NVDAUSDT-BUY"
   ],
   "barkPending": [
     {
@@ -143,6 +145,24 @@
       "positionSide": "LONG",
       "executedQty": 756.65,
       "avgPrice": 143.9141911
+    },
+    {
+      "orderTime": 1795626510070,
+      "symbol": "NVDAUSDT",
+      "baseAsset": "NVDA",
+      "side": "BUY",
+      "positionSide": "LONG",
+      "executedQty": 766.87,
+      "avgPrice": 143.8705016
+    },
+    {
+      "orderTime": 1795626520236,
+      "symbol": "NVDAUSDT",
+      "baseAsset": "NVDA",
+      "side": "BUY",
+      "positionSide": "LONG",
+      "executedQty": 1032.81,
+      "avgPrice": 143.9338347
     }
   ]
 }
