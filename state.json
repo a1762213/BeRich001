@@ -1,5 +1,5 @@
 {
-  "lastOrderTime": 1795626545202,
+  "lastOrderTime": 1795650989796,
   "notified": [
     "1794415351842-ZECUSDT-SELL",
     "1794514177788-SPCXUSDT-SELL",
@@ -118,7 +118,8 @@
     "1795626510070-NVDAUSDT-BUY",
     "1795626520236-NVDAUSDT-BUY",
     "1795626534898-NVDAUSDT-BUY",
-    "1795626545202-NVDAUSDT-BUY"
+    "1795626545202-NVDAUSDT-BUY",
+    "1795650989796-牛来USDT-BUY"
   ],
   "barkPending": [
     {
@@ -183,6 +184,15 @@
       "positionSide": "LONG",
       "executedQty": 2043.14,
       "avgPrice": 144.2917571
+    },
+    {
+      "orderTime": 1795650989796,
+      "symbol": "牛来USDT",
+      "baseAsset": "牛来",
+      "side": "BUY",
+      "positionSide": "LONG",
+      "executedQty": 480192.0,
+      "avgPrice": 0.0417741
     }
   ]
 }
