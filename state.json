@@ -1,5 +1,5 @@
 {
-  "lastOrderTime": 1795847997433,
+  "lastOrderTime": 1795849369432,
   "notified": [
     "1794415351842-ZECUSDT-SELL",
     "1794514177788-SPCXUSDT-SELL",
@@ -122,7 +122,8 @@
     "1795650989796-牛来USDT-BUY",
     "1795675360877-牛来USDT-SELL",
     "1795790402228-NVDAUSDT-BUY",
-    "1795847997433-KAVAUSDT-BUY"
+    "1795847997433-KAVAUSDT-BUY",
+    "1795849369432-KAVAUSDT-SELL"
   ],
   "barkPending": [
     {
@@ -223,6 +224,15 @@
       "positionSide": "LONG",
       "executedQty": 722282.4,
       "avgPrice": 0.0277963
+    },
+    {
+      "orderTime": 1795849369432,
+      "symbol": "KAVAUSDT",
+      "baseAsset": "KAVA",
+      "side": "SELL",
+      "positionSide": "LONG",
+      "executedQty": 722282.4,
+      "avgPrice": 0.0288829
     }
   ]
 }
